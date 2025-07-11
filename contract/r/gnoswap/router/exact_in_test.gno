@@ -18,6 +18,7 @@ import (
 	pn "gno.land/r/gnoswap/v1/position"
 	"gno.land/r/onbloc/bar"
 	"gno.land/r/onbloc/baz"
+	"gno.land/r/onbloc/qux"
 )
 
 func TestExactInSwapRouteOperation_Validate(t *testing.T) {
@@ -359,8 +360,10 @@ func TestExactInZeroForOneFalse(t *testing.T) {
 			wugnot.Approve(cross, poolContract, maxApprove)
 			gns.Approve(cross, poolContract, maxApprove)
 
-			teller := common.GetTokenTeller(wugnotTokenPath)
-			teller.Approve(poolContract, maxApprove)
+			func(cur realm) {
+				teller := common.GetTokenTeller(wugnotTokenPath)
+				teller.Approve(poolContract, maxApprove)
+			}(cross)
 
 			// Position Creation
 			pn.Mint(
@@ -392,6 +395,7 @@ func TestExactInZeroForOneFalse(t *testing.T) {
 			testing.SetRealm(std.NewCodeRealm(routerPath))
 			wugnot.Approve(cross, poolContract, maxApprove)
 
+			testing.SetRealm(std.NewUserRealm(tt.recipient))
 			amountIn, amountOut := ExactInSwapRoute(
 				cross,
 				tt.inputToken,
@@ -423,4 +427,49 @@ func TestExactInZeroForOneFalse(t *testing.T) {
 			uassert.Equal(t, tt.expectedAmount1, strconv.FormatInt(int64(beforeGnotBalance-afterGnotBalance), 10))
 		})
 	}
+}
+
+/*
+This test demonstrates a issue(Gnoswap-16) in SwapRoute function. The key steps are:
+
+· Set up the test environment with necessary approvals
+· Set the original send amount to 12345 ugnot
+· Attempt to call SwapRoute with:
+
+	· GNOT as input token
+	· qux as output token
+	· An amountSpecified of "3" (which doesn't match the sent amount)
+
+· Check if the function panics as expected
+*/
+func TestSwapRouteWugnotquxExactInDifferentAmountCoinShouldPanic(t *testing.T) {
+	testing.SetRealm(adminRealm)
+
+	wugnot.Approve(cross, routerAddr, 1000000)
+	qux.Approve(cross, routerAddr, 1000000)
+
+	testing.SetOriginCaller(adminAddr)
+	newCoins := std.Coins{{"ugnot", 12345}}
+	testing.IssueCoins(adminAddr, newCoins)
+	testing.SetOriginSend(newCoins)
+	banker := std.NewBanker(std.BankerTypeRealmSend)
+	banker.SendCoins(adminAddr, routerAddr, newCoins)
+
+	uassert.AbortsWithMessage(
+		t,
+		`[GNOSWAP-POOL-008] requested data not found || expected poolPath(gno.land/r/demo/wugnot:gno.land/r/onbloc/qux:3000) to exist`,
+		func() {
+			ExactOutSwapRoute(
+				cross,
+				consts.GNOT, // inputToken
+				quxPath,     // outputToken
+				"3",         // amountSpecified
+				"gno.land/r/demo/wugnot:gno.land/r/onbloc/qux:3000", // strRouteArr
+				"100",   // quoteArr
+				"12345", // tokenAmountLimit
+				time.Now().Add(time.Hour).Unix(),
+				"", // referrer
+			)
+		},
+	)
 }

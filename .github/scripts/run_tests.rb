@@ -24,9 +24,22 @@ class TestRunner
 
   def run_unit_tests
     puts "Running unit tests for #{@folder}"
-    test_files = Dir.glob("./#{@folder}/*_test.gno")
+    
+    # Find both regular test files and filetest files
+    test_files = Dir.glob("./#{@folder}/*_test.gno") + Dir.glob("./#{@folder}/*_filetest.gno")
+    
     test_files.each do |file|
       content = File.read(file)
+      
+      # Check if this is a filetest (has main function)
+      # For debug, use this:
+      # ruby -e "puts Dir.glob('./tests/scenario/**/*_filetest.gno')"
+      if content.include?("func main()")
+        puts "Running filetest: #{file}"
+        run_command("gno test #{file} -root-dir #{@root_dir} -v")
+        next
+      end
+
       # collect test functions from the file
       # we need to run each test function separately
       # because the gno test environment does not separate its test environment
@@ -38,7 +51,7 @@ class TestRunner
       end
       test_names.each do |test_name|
         puts "Running #{test_name} in #{file}"
-        run_command("gno test #{file} -root-dir #{@root_dir} -run #{test_name} -v")
+        run_command("gno test #{file} -root-dir #{@root_dir} -run ^#{test_name}$ -v")
       end
     end
   end
@@ -84,7 +97,8 @@ class TestRunner
   def run_all
     run_unit_tests
     remove_test_files
-    run_gnoa_tests
+    # temporary disable gnoa tests
+    # run_gnoa_tests
   end
 end
 

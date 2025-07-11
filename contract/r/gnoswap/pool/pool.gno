@@ -68,7 +68,7 @@ func Mint(cur realm,
 
 	pool := GetPool(token0Path, token1Path, fee)
 	liquidityDelta := safeConvertToInt128(liquidity)
-	positionParam := newModifyPositionParams(recipient, tickLower, tickUpper, liquidityDelta)
+	positionParam := newModifyPositionParams(positionCaller, tickLower, tickUpper, liquidityDelta)
 	_, amount0, amount1 := pool.modifyPosition(positionParam)
 
 	if amount0.Gt(u256.Zero()) {
@@ -110,18 +110,19 @@ func Burn(
 	tickLower int32,
 	tickUpper int32,
 	liquidityAmount string, // uint128
+	positionCaller std.Address,
 ) (string, string) { // uint256 x2
 	assertOnlyNotHalted()
 	if common.GetLimitCaller() {
 		assertOnlyPositionContract()
 	}
+
 	pool := GetPool(token0Path, token1Path, fee)
 
-	caller := getPrevAddr()
 	liqAmount := u256.MustFromDecimal(liquidityAmount)
 	liqAmountInt256 := safeConvertToInt128(liqAmount)
 	liqDelta := i256.Zero().Neg(liqAmountInt256)
-	posParams := newModifyPositionParams(caller, tickLower, tickUpper, liqDelta)
+	posParams := newModifyPositionParams(positionCaller, tickLower, tickUpper, liqDelta)
 	position, amount0, amount1 := pool.modifyPosition(posParams)
 
 	if amount0.Gt(u256.Zero()) || amount1.Gt(u256.Zero()) {
@@ -131,7 +132,7 @@ func Burn(
 		position.tokensOwed1 = new(u256.Uint).Add(position.tokensOwed1, amount1)
 	}
 
-	positionKey := getPositionKey(caller, tickLower, tickUpper)
+	positionKey := getPositionKey(positionCaller, tickLower, tickUpper)
 	pool.setPosition(positionKey, position)
 
 	// mustGetPosition() is called to ensure the position exists
@@ -179,7 +180,12 @@ func Collect(cur realm,
 	}
 
 	pool := GetPool(token0Path, token1Path, fee)
-	positionKey := getPositionKey(getPrevAddr(), tickLower, tickUpper)
+	// Use recipient address instead of getPrevAddr() for position key generation
+	// because positions are created with the recipient's address in Mint function,
+	// and we need to access the same position that was originally created.
+	// getPrevAddr() would return the position contract address, but the actual
+	// position is stored under the recipient's address key.
+	positionKey := getPositionKey(recipient, tickLower, tickUpper)
 	position := pool.mustGetPosition(positionKey)
 
 	var amount0, amount1 *u256.Uint
